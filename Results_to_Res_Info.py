@@ -37,6 +37,7 @@ import time
 import math
 
 T_FMT = '%Y-%m-%d %H:%M:%S'
+TIME_UNC_DAYS = 0.1  # Assume 0.1 day( ~2.4 hr) uncert on measurement date.
 
 '''
 _______________________________________________________
@@ -69,9 +70,9 @@ def ureal_to_str(un):
     return gtc.pr.dumps_json(archive)
 
 
-def str_to_ureal(j_str, l):
+def str_to_ureal(j_str, name):
     archive = gtc.pr.loads_json(j_str)
-    return archive.extract(l)
+    return archive.extract(name)
 
 
 '''
@@ -104,9 +105,9 @@ if Rx_name == 'H100M 10M':
 Extract data from Results table:
 '''
 # Run_Id, Meas_Date, Calc_Note, Meas_No, Parameter, Value, Uncert, Dof, ExpU, k:
-q_get_results = ("SELECT * FROM Results WHERE Run_Id IN "
-                 f"(SELECT Run_Id FROM Runs WHERE Rx_name = '{Rx_name}') AND "
-                 f"Excluded IS NULL OR Excluded='No';")
+q_get_results = ("SELECT * FROM Results WHERE (Excluded IS NULL OR Excluded='No') AND Run_Id IN "
+                 f"(SELECT Run_Id FROM Runs WHERE Rx_Name = '{Rx_name}' AND Range_Mode = 'FIXED');")
+
 
 curs.execute(q_get_results)
 rows = curs.fetchall()
@@ -116,50 +117,56 @@ print(f"Found {len(rows)} processed measurements.")
 measurements = []
 param_count = 0
 this_T = this_V = this_R = 0.0
-for row in rows:
-    this_run = row[0]
-    this_date = row[1]
-    this_calc_note = row[2]
-    this_meas = row[3]
-
-    if row[5] is None:
+for meas_row in rows:
+    this_run = meas_row[0]
+    this_date = meas_row[1]
+    this_calc_note = meas_row[2]
+    this_meas = meas_row[3]
+    param = meas_row[4]
+    if meas_row[5] is None:
         val = 0
     else:
-        val = row[5]
-    if row[6] is None:
+        val = meas_row[5]
+    if meas_row[6] is None:
         unc = 0
     else:
-        unc = row[6]
-    if row[7] is None:
+        unc = meas_row[6]
+    if meas_row[7] is None:
         df = 1e6
     else:
-        df = row[7]
+        df = meas_row[7]
 
-    ureal_str = row[11]
+    ureal_str = meas_row[11]
 
-    print(f'Val={val}, unc={unc}, df={df}')
-    if row[4] == 'T':
+    print(f"{this_run}: \tMeas={this_meas}: ({meas_row[4]})")
+
+    if param == 'T':
         lbl = f"{Rx_name}_T_meas={this_meas}_{this_run}"
         if ureal_str is not None:
+            print('Thawing...:', lbl)
             this_T = str_to_ureal(ureal_str, lbl)
+            print(f'Label:___{this_T.label}, UID:___{this_T._node.uid}')
         else:  # Treat as fundamental ureal.
             this_T = gtc.ureal(val, unc, df, label=lbl)
         param_count += 1
 
-    elif row[4] == 'V':
+    elif param == 'V':
         lbl = f"{Rx_name}_V_meas={this_meas}_{this_run}"
         if ureal_str is not None:
             print('Thawing...:', lbl)
             print(ureal_str)
             this_V = str_to_ureal(ureal_str, lbl)
+            print(f'Label:___{this_V.label}, UID:___{this_V._node.uid}')
         else:  # Treat as fundamental ureal.
             this_V = gtc.ureal(val, unc, df, label=lbl)
         param_count += 1
 
-    elif row[4] == 'R':
+    elif param == 'R':
         lbl = f"{Rx_name}_R_meas={this_meas}_{this_run}"
         if ureal_str is not None:
+            print('Thawing...:', lbl)
             this_R = str_to_ureal(ureal_str, lbl)
+            print(f'Label:___{this_R.label}, UID:___{this_R._node.uid}')
         else:
             this_R = gtc.ureal(val, unc, df, label=lbl)
         param_count += 1
@@ -177,7 +184,7 @@ Calculate mean date:
 all_dates = [m['m_date'] for m in measurements]
 mean_date_val = av_time(all_dates, 'days')  # Num days from start of epoch.
 mean_date_str = av_time(all_dates, 'str')  # Date-time as a string.
-mean_date_unc = 0.1  # Assume 0.1 day( ~2.4 hr) uncert on measurement date.
+mean_date_unc = TIME_UNC_DAYS
 mean_date_df = len(all_dates) - 1
 mean_date = gtc.ureal(mean_date_val, mean_date_unc, mean_date_df, label=f'av_date_{Rx_name}')
 
@@ -232,10 +239,10 @@ for m in measurements:
 # Find largest sub-set by test-V:
 most_common_testV = 0
 largest_sample = 0
-for test_v in testVs:
+for test_v in sorted(testVs):  # (See next comment).
     sample_size = len(measurements_by_testV[test_v])
     print(f"Num. {test_v} V measurements:\t{sample_size}")
-    if sample_size >= largest_sample:
+    if sample_size > largest_sample:  # Lowest test-V 'wins' in a draw.
         largest_sample = sample_size
         most_common_testV = test_v
 print(f"Largest sub-set is {most_common_testV} V with {largest_sample} members.")
@@ -248,59 +255,82 @@ and calculate alpha (T-Co):
 params_by_testV = {}
 for v in testVs:
     params_by_testV.update({v: {}})
-    T_av = gtc.fn.mean([m['T'] for m in measurements_by_testV[v]])  # TRef for this test_V sample.
-    V_av = gtc.fn.mean([m['V'] for m in measurements_by_testV[v]])  # VRef for this test_V sample.
-    R_av = gtc.fn.mean([m['R'] for m in measurements_by_testV[v]])  # R0 for this test_V sample.
+    T_av = gtc.result(gtc.fn.mean([m['T'] for m in measurements_by_testV[v]]),
+                      label=f'{Rx_name}_TRef')  # TRef for this test_V sample.
+    V_av = gtc.result(gtc.fn.mean([m['V'] for m in measurements_by_testV[v]]),
+                      label=f'{Rx_name}_VRef')  # VRef for this test_V sample.
+    R_av = gtc.result(gtc.fn.mean([m['R'] for m in measurements_by_testV[v]]),
+                      label=f'{Rx_name}_R0')  # R0 for this test_V sample.
     params_by_testV[v].update({'T': T_av, 'V': V_av, 'R': R_av})
 
     # Recalculate T's as shift from average T:
-    T_rel = [m['T'].x - T_av for m in measurements_by_testV[v]]
+    T_rel = [gtc.result(m['T'].x - T_av) for m in measurements_by_testV[v]]
 
     # Find R (at mean T) and alpha [Ohm/C] at this test-V:
-    R0, alpha = gtc.ta.line_fit_wtls(T_rel,
-                                     [m['R'].x for m in measurements_by_testV[v]],
-                                     [m['T'].u for m in measurements_by_testV[v]],
-                                     [m['R'].u for m in measurements_by_testV[v]]).a_b
+    R0_a, alpha_a = gtc.ta.line_fit_wtls(T_rel,
+                                         [m['R'].x for m in measurements_by_testV[v]],
+                                         [m['T'].u for m in measurements_by_testV[v]],
+                                         [m['R'].u for m in measurements_by_testV[v]]).a_b
+    # R0 = gtc.result(R0_a, label=f'{Rx_name}_R0')
+
+    # Calculate R, alpha with type B uncerts then merge with type A result:
+    R0_b, alpha_b = gtc.tb.line_fit_wtls(T_rel,
+                                         [m['R'] for m in measurements_by_testV[v]],
+                                         [m['T'].u for m in measurements_by_testV[v]],
+                                         [m['R'].u for m in measurements_by_testV[v]]).a_b
+    alpha_ab = gtc.result(gtc.ta.merge(alpha_a, alpha_b), label=f'{Rx_name} at V={v}_alpha')
+    R0 = gtc.result(gtc.ta.merge(R0_a, R0_b), label=f'{Rx_name} at V={v}_R0')
+    # print(f'Merged alpha_ab (at V={v}) [ohm/C]: {alpha_a} & {alpha_b} -> {alpha_ab}')
+    alpha = gtc.result(alpha_ab / R0, label=f'{Rx_name} at_{v} alpha')
     params_by_testV[v].update({'alpha': alpha, 'R0': R0})
 
     # write records to Res_Info table for most common test-V sample:
     if v == most_common_testV:
         headings = 'R_Name,Parameter,Value,Uncert,doF,Label,Ref_Comment,Ureal_Str'
         # TRef:
-        lbl = Rx_name + '_TRef'
-        values = f"'{Rx_name}','TRef',{T_av.x},{T_av.u},{T_av.df},'{lbl}','{ref_comment}','{ureal_to_str(T_av)}'"
+        TRef = T_av
+        lbl = TRef.label
+        values = f"'{Rx_name}','TRef',{TRef.x},{TRef.u},{TRef.df},'{lbl}','{ref_comment}','{ureal_to_str(TRef)}'"
         q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
         curs.execute(q)
 
         # VRef:
-        lbl = Rx_name + '_VRef'
-        values = f"'{Rx_name}','VRef',{V_av.x},{V_av.u},{V_av.df},'{lbl}','{ref_comment},'{ureal_to_str(V_av)}''"
+        VRef = V_av
+        lbl = VRef.label
+        values = f"'{Rx_name}','VRef',{VRef.x},{VRef.u},{VRef.df},'{lbl}','{ref_comment}','{ureal_to_str(VRef)}'"
         q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
         curs.execute(q)
 
         # R0:
-        lbl = Rx_name + '_R0'
-        values = f"'{Rx_name}','R0',{R0.x},{R0.u},{R0.df},'{lbl}','{ref_comment},'{ureal_to_str(R0)}''"
+        R0 = R_av
+        lbl = R0.label
+        values = f"'{Rx_name}','R0',{R0.x},{R0.u},{R0.df},'{lbl}','{ref_comment}','{ureal_to_str(R0)}'"
         q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
         curs.execute(q)
 
         if hamon10m:  # Include inferred value(s) for series-connected Hamon.
             # TRef:
             lbl = 'H100M 1G' + '_TRef'
-            values = f"'H100M 1G','TRef',{T_av.x},{T_av.u},{T_av.df},'{lbl}','{ref_comment}','{ureal_to_str(T_av)}'"
+            dummy = TRef*2  # Trick GTC to create a copy of TRef...
+            TRef_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
+            values = (f"'H100M 1G','TRef',{TRef_H1G.x},{TRef_H1G.u},{TRef_H1G.df},'{lbl}',"
+                      f"'{ref_comment}','{ureal_to_str(TRef_H1G)}'")
             q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
             curs.execute(q)
 
             # VRef:
             lbl = 'H100M 1G' + '_VRef'
-            values = (f"'H100M 1G','VRef',{10*V_av.x},{10*V_av.u},{V_av.df},'{lbl}',"
-                      f"'{ref_comment}','{ureal_to_str(V_av)}'")
+            VRef_H1G = gtc.ureal(10*VRef.x, 10*VRef.u, VRef.df, label=lbl)
+            values = (f"'H100M 1G','VRef',{VRef_H1G.x},{VRef_H1G.u},{VRef_H1G.df},'{lbl}',"
+                      f"'{ref_comment}','{ureal_to_str(VRef_H1G)}'")
             q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
             curs.execute(q)
 
             # R0:
             lbl = 'H100M 1G' + '_R0'
-            values = f"'H100M 1G','R0',{100*R_av.x},{100*R_av.u},{R_av.df},'{lbl}','{ref_comment}','{ureal_to_str(R0)}'"
+            R0_H1G = gtc.ureal(100*R0.x, 100*R0.u, R0.df, lbl)
+            values = (f"'H100M 1G','R0',{R0_H1G.x},{R0_H1G.u},{R0_H1G.df},'{lbl}'," 
+                      f"'{ref_comment}','{ureal_to_str(R0_H1G)}'")
             q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
             curs.execute(q)
 
@@ -310,11 +340,11 @@ Calculate mean alpha & write record to Res_Info table:
 '''
 # Define 'book-value' / parameters:
 R_0 = params_by_testV[most_common_testV]['R0']
-T_0 = params_by_testV[most_common_testV]['R0']
-V_0 = most_common_testV
+T_0 = params_by_testV[most_common_testV]['T']
+V_0 = params_by_testV[most_common_testV]['V']
 
 lbl = Rx_name + '_alpha'
-alpha = gtc.result(gtc.fn.mean([params_by_testV[v]['alpha'] for v in testVs])/ R_0,
+alpha = gtc.result(gtc.fn.mean([params_by_testV[v]['alpha'] for v in testVs]),
                    label=lbl)  # Units: [/deg_C]
 print(f'Alpha = ({alpha.x} +/- {alpha.u} /C), dof = {alpha.df}')
 
@@ -325,7 +355,8 @@ curs.execute(q)
 
 if hamon10m:  # Include inferred value(s) for series-connected Hamon.
     lbl = 'H100M 1G' + '_alpha'
-    alpha_H1G = gtc.result(alpha, label=lbl)
+    dummy = alpha*2  # Trick GTC to create a copy of alpha..
+    alpha_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
     values = (f"'H100M 1G','alpha',{alpha_H1G.x},{alpha_H1G.u},{alpha_H1G.df},'{lbl}',"
               f"'{ref_comment}','{ureal_to_str(alpha_H1G)}'")
     q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
@@ -346,14 +377,23 @@ if len(testVs) > 1:
     V_av = gtc.fn.mean([m['V'] for m in measurements])
     V_rel = [m['V'] - V_av for m in measurements]
 
-    # Fit to (R vs corrected_V) - units of gamma_ [Ohm/V]:
-    R0_avV, gamma_ = gtc.ta.line_fit_wtls([V.x for V in V_rel],
+    # Fit to (R vs corrected_V) - units of gamma_ [Ohm/V] (TYPE A):
+    R0_avV_a, gamma_a = gtc.ta.line_fit_wtls([V.x for V in V_rel],
                                           [R.x for R in R_vals_T_corr],
                                           [V.u for V in V_rel],
                                           [R.u for R in R_vals_T_corr]).a_b
-    gamma = gamma_/V_0  # Units: [/V]
+
+    # Fit to (R vs corrected_V) - units of gamma_ [Ohm/V] (TYPE B):
+    R0_avV_b, gamma_b = gtc.tb.line_fit_wtls(V_rel,
+                                             R_vals_T_corr,
+                                             [V.u for V in V_rel],
+                                             [R.u for R in R_vals_T_corr]).a_b
+
+    gamma_ab = gtc.ta.merge(gamma_a, gamma_b)
+    lbl = f'{Rx_name}_gamma'
+    gamma = gtc.result(gamma_ab/R_0, label=lbl)  # Units: [/V]
 else:  # Gamma not calculated, (assumed zero).
-    gamma = gtc.ureal(0, 0, 1e6)
+    gamma = gtc.ureal(0, 0, 1e6, label=lbl)
 print(f'Gamma = ({gamma.x} +/- {gamma.u} /C), dof = {gamma.df}')
 
 '''
@@ -373,7 +413,8 @@ curs.execute(q)
 
 if hamon10m:  # Include inferred value(s) for series-connected Hamon.
     lbl = 'H100M 1G' + '_gamma'
-    gamma_H1G = gtc.result(gamma, label=lbl)
+    dummy = gamma*2  # Trick GTC to create a copy of gamma...
+    gamma_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
     values = (f"'H100M 1G','gamma',{gamma_H1G.x},{gamma_H1G.u},{gamma_H1G.df},'{lbl}',"
               f"'{ref_comment}','{ureal_to_str(gamma_H1G)}'")
     q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
@@ -393,18 +434,31 @@ else:
 Calculate tau (drift rate):
 '''
 # Recalculate dates relative to mean_date (diff in days):
-mean_date_dt = dt.datetime.strptime(mean_date_val, T_FMT)
-t_rel = [((dt.datetime.strptime(m['m_date'], T_FMT) - mean_date_dt).days +
-         (dt.datetime.strptime(m['m_date'], T_FMT) - mean_date_dt).seconds/86400)
-         for m in measurements]
+mean_date_dt = dt.datetime.strptime(mean_date_str, T_FMT)
 
-# Fit to (R vs date) - Units of tau_ [Ohm/day]:
-R0_avt, tau_ = gtc.ta.line_fit_wtls([t for t in t_rel],
-                                    [R.x for R in R_vals_TV_corr],
-                                    [0.1 for t in t_rel],  # Assumed time-uncert for all measurements.
-                                    [R.u for R in R_vals_TV_corr]).a_b
+# List of time-shifts (in days) relative to mean date:
+t_rel_days = [(
+    (dt.datetime.strptime(m['m_date'], T_FMT) - mean_date_dt).days +
+    (dt.datetime.strptime(m['m_date'], T_FMT) - mean_date_dt).seconds/86400
+              ) for m in measurements]
 
-tau = tau_/R_0  # Units: [/day]
+# List of time-shift-ureals (in days) relative to mean date:
+t_rel_days_un = [gtc.ureal(t, TIME_UNC_DAYS) for t in t_rel_days]
+
+# Fit to (R vs date) - Units of tau_ [Ohm/day] (TYPE A):
+R0_avt_a, tau_a = gtc.ta.line_fit_wtls(t_rel_days,
+                                       [R.x for R in R_vals_TV_corr],
+                                       [0.1 for t in t_rel_days],  # Assumed time-uncert for all measurements.
+                                       [R.u for R in R_vals_TV_corr]).a_b
+
+# Fit to (R vs date) - Units of tau_ [Ohm/day] (TYPE B):
+R0_avt_b, tau_b = gtc.tb.line_fit_wtls(t_rel_days_un,
+                                       R_vals_TV_corr,
+                                       [0.1 for t in t_rel_days],  # Assumed time-uncert for all measurements.
+                                       [R.u for R in R_vals_TV_corr]).a_b
+
+tau_ab = gtc.ta.merge(tau_a, tau_b)
+tau = gtc.result(tau_ab/R_0, label=f'{Rx_name}_tau')  # Units: [/day]
 print(f'Tau = ({tau.x} +/- {tau.u}) /day,  dof = {tau.df}')
 
 '''
@@ -419,7 +473,8 @@ curs.execute(q)
 
 if hamon10m:  # Include inferred value(s) for series-connected Hamon.
     lbl = 'H100M 1G' + '_tau'
-    tau_H1G = gtc.result(tau, label=lbl)
+    dummy = tau*2  # Trick GTC to create a copy of tau...
+    tau_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
     values = f"'H100M 1G','tau',{tau_H1G.x},{tau_H1G.u},{tau_H1G.df},'{lbl}','{ref_comment}','{ureal_to_str(tau_H1G)}'"
     q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
     curs.execute(q)
