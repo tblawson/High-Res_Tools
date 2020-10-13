@@ -101,6 +101,8 @@ Rx_name = input('Rx_name? >')
 if Rx_name == 'H100M 10M':
     hamon10m = True
 
+Rs_name = input("Preferred Rs_name(s)? (For any Rs press 'Enter') >")
+
 '''
 ---------------------------------------
 Select whether to analyse -
@@ -119,11 +121,17 @@ run_count = limit_choices[response]
 ---------------------------------------
 Extract data from Results table:
 '''
+if Rs_name == '':
+    Rs_term = ''
+else:
+    Rs_term = f"AND Rs_Name='{Rs_name}'"
+
 
 # Run_Id, Meas_Date, Calc_Note, Meas_No, Parameter, Value, Uncert, Dof, ExpU, k:
 q_get_results = ("SELECT * FROM Results WHERE (Excluded IS NULL OR Excluded='No') AND Run_Id IN "
-                 f"(SELECT Run_Id FROM Runs WHERE Rx_Name = '{Rx_name}' AND "
-                 f"Range_Mode = 'FIXED' ORDER BY Meas_Date DESC LIMIT {run_count});")
+                 f"(SELECT Run_Id FROM Runs WHERE Rx_Name = '{Rx_name}' {Rs_term} AND "
+                 "Range_Mode='FIXED' AND (Blacklist IS NULL OR Blacklist='No') "
+                 f"ORDER BY Meas_Date DESC LIMIT {run_count});")
 curs.execute(q_get_results)
 rows = curs.fetchall()
 assert len(rows) > 0, 'No measurements found - check spelling of resistor name!'
@@ -153,7 +161,7 @@ for meas_row in rows:
 
     ureal_str = meas_row[11]
 
-    print(f"{this_run}: \tMeas. {this_meas}: ({meas_row[4]})")
+    print(f"{this_run}: \tMeas. {this_meas}: ({meas_row[4]} = {val})")
 
     if param == 'T':
         lbl = f"{Rx_name}_T_meas={this_meas}_{this_run}"
@@ -187,7 +195,8 @@ for meas_row in rows:
         param_count += 1
 
     if param_count == 3:
-        this_meas = {'runid': this_run, 'm_date': this_date, 'c_note': this_calc_note,
+        this_meas = {'runid': this_run, 'meas': this_meas,
+                     'm_date': this_date, 'c_note': this_calc_note,
                      'T': this_T, 'V': this_V, 'R': this_R}
         measurements.append(this_meas)
         param_count = 0
@@ -251,6 +260,7 @@ for V in testVs:
 
 # Assign each measurement to sub-sets, based on test-V:
 for m in measurements:
+    print(m['runid'], f"meas_no={m['meas']}; R={m['R']}")
     nom_V = round(m['V'].x)
     for test_v in testVs:
         if nom_V == test_v:
@@ -274,6 +284,7 @@ and calculate alpha (T-Co):
 '''
 params_by_testV = {}
 for v in testVs:
+    print(f'Measurements at {v}V:\n', measurements_by_testV[v])
     params_by_testV.update({v: {}})
     T_av = gtc.result(gtc.fn.mean([m['T'] for m in measurements_by_testV[v]]),
                       label=f'{Rx_name}_TRef')  # TRef for this test_V sample.
