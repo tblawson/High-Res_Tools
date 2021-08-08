@@ -6,7 +6,7 @@ Created on Fri 7/08/2020
 
 @author: t.lawson
 
-Extract all HRBA-analysed results from'Results' sheet of an HRBC / HRBA Excel file
+Extract all HRBA-analysed results from 'Results' sheet of an HRBC / HRBA Excel file
 and transfer information to Resistors.db >Results and >Uncert_Contribs tables.
 """
 
@@ -112,7 +112,7 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
         print(f'In measurement block {meas_no}')
 
         # Write budget line to Uncert_Contribs table:
-        if row[12] == 'inf':
+        if row[12] == 'inf':  # dof
             df = 1e6
         else:
             df = row[12]
@@ -141,7 +141,7 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
             """
             Write measurement info to Results table.
             """
-            headings = 'Run_id,Meas_Date,Calc_Note,Meas_No,Parameter,Value,Uncert,DoF,ExpU'
+            headings = 'Run_id,Meas_Date,Analysis_Note,Meas_No,Parameter,Value,Uncert,DoF,ExpU'
             for key, val in {'V': [Vtest_val, Vtest_unc, Vtest_df, 'NULL'],
                              'T': [T_val, T_unc, T_df, 'NULL'],
                              'R': [R_val, R_unc, R_df, R_expu]}.items():
@@ -152,6 +152,14 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
                 curs.execute(result_query)
                 print(f'Writing data for meas_no {meas_no} ({meas_row_count} rows)')
 
+            """
+            Update Runs table with mean Meas_Date & Analysis_Note
+            """
+            runs_query = (f"UPDATE OR REPLACE Runs SET Meas_Date='{meas_date}', Analysis_Note='{this_analysis_note}' "
+                          f"WHERE Run_Id = '{this_run}';")
+            curs.execute(runs_query)
+            print(f'Updating Runs table: meas_date - {meas_date}; {this_analysis_note}.')
+
         if row[10] == '':  # Value column
             """
             We've reached the blank row between data blocks, so the
@@ -159,7 +167,7 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
             """
             first_meas_block = False
             next_meas_block = True
-            print(f'END OF MEASUREMENT for meas_no {meas_no} ')
+            print(f'END OF MEASUREMENT for meas_no {meas_no}.\n')
             meas_row_count = 0
             run_row_count = 0
             meas_no += 1
@@ -167,7 +175,7 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
         continue
 # tidy up:
 if test is False:
-    print('Committing changes to db...')
+    print('\nCommitting changes to db...')
     db_connection.commit()  # Assign all updates to database.
 
 curs.close()
