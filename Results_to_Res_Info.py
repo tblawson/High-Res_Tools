@@ -11,8 +11,8 @@ Populate Res_Info table with info calculated from Results table.
 First, the calibration date is calculated as the mean of all measurement dates,
 regardless of test voltage.
 
-Next, the data is split into LV data and HV data.
-For each sub-data-set (LV or HV), the mean test voltage, mean resistance and
+Next, the data is split into subsets by nominal test voltage.
+For the most-common nominal test voltage, the mean test voltage, mean resistance and
 reference temperature are calculated and total weighted least squares (WTLS) fits
 are used to determine the 1st-order temperature coefficient, alpha_LV or alpha_HV -
 The mean of these two values is returned as the parameter 'alpha'.
@@ -144,7 +144,7 @@ for meas_row in rows:
     this_run = meas_row[0]
     this_date = meas_row[1]
     this_calc_note = meas_row[2]
-    this_meas = meas_row[3]
+    this_value = meas_row[3]
     param = meas_row[4]
     if meas_row[5] is None:
         val = 0
@@ -161,10 +161,13 @@ for meas_row in rows:
 
     ureal_str = meas_row[11]
 
-    print(f"{this_run}: \tMeas. {this_meas}: ({meas_row[4]} = {val})")
+    print(f"{this_run}: \tMeas. {this_value}: ({param} = {val})")
 
+    """
+    Construct / extract GTC ureals for each Result record:
+    """
     if param == 'T':
-        lbl = f"{Rx_name}_T_meas={this_meas}_{this_run}"
+        lbl = f"{Rx_name}_T_meas={this_value}_{this_run}"
         if ureal_str is not None:
             # print('Thawing...:', lbl)
             this_T = str_to_ureal(ureal_str, lbl)
@@ -174,7 +177,7 @@ for meas_row in rows:
         param_count += 1
 
     elif param == 'V':
-        lbl = f"{Rx_name}_V_meas={this_meas}_{this_run}"
+        lbl = f"{Rx_name}_V_meas={this_value}_{this_run}"
         if ureal_str is not None:
             # print('Thawing...:', lbl)
             # print(ureal_str)
@@ -185,7 +188,7 @@ for meas_row in rows:
         param_count += 1
 
     elif param == 'R':
-        lbl = f"{Rx_name}_R_meas={this_meas}_{this_run}"
+        lbl = f"{Rx_name}_R_meas={this_value}_{this_run}"
         if ureal_str is not None:
             # print('Thawing...:', lbl)
             this_R = str_to_ureal(ureal_str, lbl)
@@ -195,7 +198,7 @@ for meas_row in rows:
         param_count += 1
 
     if param_count == 3:
-        this_meas = {'runid': this_run, 'meas': this_meas,
+        this_meas = {'runid': this_run, 'meas': this_value,
                      'm_date': this_date, 'c_note': this_calc_note,
                      'T': this_T, 'V': this_V, 'R': this_R}
         measurements.append(this_meas)
@@ -215,7 +218,7 @@ mean_date = gtc.ureal(mean_date_val, mean_date_unc, mean_date_df, label=f'av_dat
 
 # Generate reference comment comprising all unique runid's.
 runids = set(m['runid'] for m in measurements)
-ref_comment = ", ".join(runids)
+ref_comment = ";\n ".join(runids)
 print('\nData extracted from runs:\n', ref_comment)
 
 # q_get_ids = f"SELECT DISTINCT Run_Id FROM Runs WHERE Rx_name='{Rx_name}';"
@@ -244,11 +247,17 @@ if hamon10m:  # Include inferred value(s) for series-connected Hamon.
 
 '''
 ---------------------------------------
-Separate data by test-voltage.
+Separate data by test-voltage:
+    * Positive voltages only,
+    * FIXED range mode only,
+    * No Blacklisted runs,
+    * No Excluded results.
 '''
 testV_query = ("SELECT DISTINCT V1set FROM Raw_Data WHERE V1set>0 AND Run_Id IN "
                f"(SELECT Run_Id FROM Runs WHERE Rx_Name='{Rx_name}' AND "
-               f"Range_Mode = 'FIXED' ORDER BY Meas_Date DESC LIMIT {run_count});")
+               f"Range_Mode = 'FIXED' AND (Blacklist IS NULL OR Blacklist='No') AND "
+               f"Run_Id NOT IN (SELECT Run_Id FROM Results WHERE Excluded='Yes') "
+               f"ORDER BY Meas_Date DESC LIMIT {run_count});")
 curs.execute(testV_query)
 testVs = [int(row[0]) for row in curs.fetchall()]
 print(f"\nFound these test-voltages: {testVs}")
@@ -260,7 +269,7 @@ for V in testVs:
 
 # Assign each measurement to sub-sets, based on test-V:
 for m in measurements:
-    print(m['runid'], f"meas_no={m['meas']}; R={m['R']}")
+    print(m['runid'], f"meas_no={m['meas']}; R={m['R']}; V={m['V']}")
     nom_V = round(m['V'].x)
     for test_v in testVs:
         if nom_V == test_v:
@@ -271,7 +280,7 @@ most_common_testV = 0
 largest_sample = 0
 for test_v in sorted(testVs):  # (See next comment).
     sample_size = len(measurements_by_testV[test_v])
-    print(f"Num. {test_v} V measurements:\t{sample_size}")
+    print(f"Num. {test_v} V measurements:\t\t{sample_size}")
     if sample_size > largest_sample:  # Lowest test-V 'wins' in a draw.
         largest_sample = sample_size
         most_common_testV = test_v
