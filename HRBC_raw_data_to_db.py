@@ -72,9 +72,9 @@ Start with 'Data' sheet -> Runs & Raw_Data tables...
 [maxrow, maxcol] = wb.ws('Data').size
 print(f'Data sheet size: {maxrow} rows x {maxcol} columns.')
 
-Role_col = xl.pylightxl.columnletter2num('AC')
-Descr_col = xl.pylightxl.columnletter2num('AD')
-Rng_mode_col = xl.pylightxl.columnletter2num('AE')
+Role_col = xl.pylightxl.utility_columnletter2num('AC')
+Descr_col = xl.pylightxl.utility_columnletter2num('AD')
+Rng_mode_col = xl.pylightxl.utility_columnletter2num('AE')
 
 roles = []
 instruments = []
@@ -85,11 +85,13 @@ for row in wb.ws('Data').rows:
     role = row[Role_col - 1]
     descr = row[Descr_col - 1]
     range_mode = row[Rng_mode_col - 1]
+    if row[25] not in ('',):
+        com = row[25]  # Only re-assign comment if NOT blank
 
     # Look for next run_id...
     if row[0] == 'Run Id:':
         this_run = row[1]
-        print(f'Run: {this_run}')
+        print(f'\nRun: {this_run}')
         #  Clear instrument assignments, reversal & meas-no, ready for next run:
         roles.clear()
         instruments.clear()
@@ -98,7 +100,8 @@ for row in wb.ws('Data').rows:
 
     """
     Build instrument assignment info.
-    Ignore 'DVMT1' and 'DVMT2' rols since they'e no longer used.
+    Ignore 'DVMT1' and 'DVMT2' roles since this info is no longer used
+    in the analysis.
     """
     if role not in ('', 'Role', 'DVMT1', 'DVMT2'):
         roles.append(role)
@@ -113,7 +116,7 @@ for row in wb.ws('Data').rows:
         # print(f'\tRange mode: {this_range_mode}')
         assignments = dict(zip(roles, instruments))
         # print(f'\tInstrument assignments:\n\t{assignments}')
-        com = row[25]
+        print(f'comment: {com}')
         Rx_name, Rs_name = extract_names(com)
         # print(f'Rx: {Rx_name}, Rs: {Rs_name}')
         headings = 'Run_Id,Comment,RS_Name,RX_Name,Range_Mode,SRC1,SRC2,DVMd,DVM12,GMH1,GMH2,GMHroom'
@@ -123,7 +126,7 @@ for row in wb.ws('Data').rows:
                   f" '{assignments['GMHroom']}' ")
         runs_query = f"INSERT OR REPLACE INTO Runs ({headings}) VALUES ({values});"
         curs.execute(runs_query)
-        print(runs_query)
+        # print(runs_query)
 
     # Note which reversal we're on:
     if row[0] not in ('start_row',  'stop_row', 'V1_set', 'Run Id:', '',):
@@ -143,7 +146,7 @@ for row in wb.ws('Data').rows:
                   f"'{v1_t}',{row[16]},{row[17]},'{vd_t}',{row[13]},{row[14]},'{v2_t}',{row[7]},{row[8]},"
                   f"{row[20]},{row[21]},{row[22]},{row[23]},{row[24]}")
         data_query = f"INSERT OR REPLACE INTO Raw_Data ({headings}) VALUES ({values});"
-        print(data_query)
+        # print(data_query)
         if row[25] not in ('','IGNORE'):
             curs.execute(data_query)
 
@@ -151,7 +154,7 @@ for row in wb.ws('Data').rows:
 Now repeat with 'Rlink' -> Raw_Rlink_Data tables...
 """
 
-print('\n------------------------------\n')
+print('\n---------------------------------------------------------------------------------------------------------\n')
 
 [maxrow, maxcol] = wb.ws('Rlink').size
 print(f'Rlink sheet size: {maxrow} rows x {maxcol} columns.')
