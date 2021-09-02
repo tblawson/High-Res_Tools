@@ -8,6 +8,7 @@ Created on Fri 7/08/2020
 
 Extract all HRBA-analysed results from 'Results' sheet of an HRBC / HRBA Excel file
 and transfer information to Resistors.db >Results and >Uncert_Contribs tables.
+Also updates PRE-EXISTING RECORDS in >Runs table to include meas_date and analysis note.
 """
 
 import pylightxl as xl
@@ -132,12 +133,20 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
             R_val, R_unc, R_df, R_expu = row[4:8]
             continue
         elif meas_row_count == 2:  # Must be on 2nd row of this measurement block.
-            Vtest_unc = row[1]
-            T_unc = row[3]
+            if row[1] == '':
+                Vtest_unc = 0  # Default to zero std uncert, if not recorded.
+                T_unc = 0  # Default to zero std uncert, if not recorded.
+            else:
+                Vtest_unc = row[1]
+                T_unc = row[3]
             continue
         elif meas_row_count == 3:  # Must be on 3rd row of this measurement block.
-            Vtest_df = row[1]
-            T_df = row[3]
+            if row[1] == '':
+                Vtest_df = 1e6  # Default to max dof, if not recorded.
+                T_df = 1e6  # Default to max dof, if not recorded.
+            else:
+                Vtest_df = row[1]
+                T_df = row[3]
             """
             Write measurement info to Results table.
             """
@@ -148,7 +157,7 @@ for row in wb.ws('Results').rows:  # Step through rows and gather info...
                 values = (f"'{this_run}','{meas_date}','{this_analysis_note}',"
                           f"{meas_no},'{key}',{val[0]},{val[1]},{val[2]},{val[3]}")
                 result_query = f"INSERT OR REPLACE INTO Results ({headings}) VALUES ({values});"
-                print('Values:', values)
+                print('Query:\n', result_query)
                 curs.execute(result_query)
                 print(f'Writing data for meas_no {meas_no} ({meas_row_count} rows)')
 
