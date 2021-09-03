@@ -214,7 +214,8 @@ mean_date_val = av_time(all_dates, 'days')  # Num days from start of epoch.
 mean_date_str = av_time(all_dates, 'str')  # Date-time as a string.
 mean_date_unc = TIME_UNC_DAYS
 mean_date_df = len(all_dates) - 1
-mean_date = gtc.ureal(mean_date_val, mean_date_unc, mean_date_df, label=f'av_date_{Rx_name}')
+lbl = f'{Rx_name}_t0'
+mean_date_ureal = gtc.ureal(mean_date_val, mean_date_unc, mean_date_df, label=lbl)
 
 # Generate reference comment comprising all unique runid's.
 runids = set(m['runid'] for m in measurements)
@@ -230,10 +231,9 @@ print('\nData extracted from runs:\n', ref_comment)
 # ref_comment = ", ".join(runids)
 
 # write 'date' record to Res_Info table:
-lbl = Rx_name + '_t0'
 headings = 'R_Name,Parameter,Value,Uncert,DoF,Label,Ref_Comment,Ureal_Str'
 values = (f"'{Rx_name}','Cal_Date','{mean_date_str}',{mean_date_unc},{mean_date_df},'{lbl}',"
-          f"'{ref_comment}','{ureal_to_str(mean_date)}'")
+          f"'{ref_comment}','{ureal_to_str(mean_date_ureal)}'")
 q_date = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
 curs.execute(q_date)
 
@@ -241,7 +241,7 @@ if hamon10m:  # Include inferred value(s) for series-connected Hamon.
     lbl = 'H100M 1G' + '_t0'
     headings = 'R_Name,Parameter,Value,Uncert,DoF,Label,Ref_Comment,Ureal_Str'
     values = (f"'H100M 1G','Cal_Date','{mean_date_str}',{mean_date_unc},{mean_date_df},'{lbl}',"
-              f"'{ref_comment}','{ureal_to_str(mean_date)}'")
+              f"'{ref_comment}','{ureal_to_str(mean_date_ureal)}'")
     q_date = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
     curs.execute(q_date)
 
