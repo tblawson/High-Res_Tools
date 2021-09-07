@@ -14,6 +14,7 @@ import sqlite3
 import GTC as gtc
 import datetime as dt
 import time
+import sys
 
 
 T_FMT = '%Y-%m-%d %H:%M:%S'
@@ -61,7 +62,13 @@ t_days = t_s/86400  # Time as float (days from epoch).
 
 query = f"SELECT * FROM Res_Info WHERE R_Name = '{R_name}';"
 curs.execute(query)
-rows = curs.fetchall()
+
+try:
+    rows = curs.fetchall()
+    assert len(rows) > 0, 'No resistor info available!'
+except AssertionError as msg:
+    print(msg)
+    sys.exit()
 
 #  Compile data for this resistor into a dictionary.
 res_info = {}
