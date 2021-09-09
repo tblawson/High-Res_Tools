@@ -39,6 +39,29 @@ def str_to_ureal(j_str, name):
     return archive.extract(name)
 
 
+def input_to_ureal(msg):
+    """
+    Request input from user and return it as a ureal.
+
+    Initial input string is split() at the ' 's, yielding a list of numbers (as str).
+    Create a list of floats by casting each str element using a list comprehension.
+    Finally, unpack the list of floats as arguments to ureal().
+
+    :param msg: User instructions defining type of input.
+    :return: ureal
+    """
+
+    arg_lst = [float(i) for i in input(msg).split()]  # 0, 1, 2 or 3 arguments.
+    assert len(arg_lst) > 1, 'Not enough values to construct ureal!'
+    return gtc.ureal(*arg_lst)
+
+
+def get_true_R_name(guess, curs):
+    query = f"SELECT DISTINCT R_name FROM Res_Info WHERE R_Name LIKE '%{guess}%';"
+    curs.execute(query)
+    return curs.fetchone()[0]
+
+
 """
 ------------------------ Main Script --------------------------
 """
@@ -47,20 +70,23 @@ def str_to_ureal(j_str, name):
 db_connection = db_connect()
 curs = db_connection.cursor()
 
-R_name = input('Resistor name? ')
-R_temp_val = float(input('Resistor temperature? '))
-R_V_val = float(input('Resistor test-voltage? '))
+R_name_guess = input('Resistor name? ')
+R_name = get_true_R_name(R_name_guess, curs)
+print(f'I assume you meant {R_name}!')
+
+R_temp = input_to_ureal('Resistor temperature (in ureal format: "val unc dof")? ')
+R_V = input_to_ureal('Resistor test-voltage (in ureal format: "val unc dof")? ')
 R_time = input('Resistor calibration date ("yyyy-mm-dd HH:MM:SS" or "n" for now)? ')
 if R_time == 'n':
     t_val_dt = dt.datetime.now()  # A datetime object
 else:
-    t_val_dt = dt.datetime.strptime(R_time,  T_FMT)  # A datetime object.
+    t_val_dt = dt.datetime.strptime(R_time, T_FMT)  # A datetime object.
 
 t_tup = dt.datetime.timetuple(t_val_dt,)  # A time-tuple object.
 t_s = time.mktime(t_tup)  # Time as float (seconds from epoch).
 t_days = t_s/86400  # Time as float (days from epoch).
 
-query = f"SELECT * FROM Res_Info WHERE R_Name = '{R_name}';"
+query = f"SELECT * FROM Res_Info WHERE R_Name LIKE '%{R_name}%';"
 curs.execute(query)
 
 try:
@@ -94,17 +120,14 @@ for row in rows:
 
 R0 = res_info['R0'][f'{R_name}_R0']
 alpha = res_info['alpha'][f'{R_name}_alpha']
+print(f'alpha = {alpha}')
 T0 = res_info['TRef'][f'{R_name}_TRef']
 gamma = res_info['gamma'][f'{R_name}_gamma']
+print(f'gamma = {gamma}')
 V0 = res_info['VRef'][f'{R_name}_VRef']
 tau = res_info['tau'][f'{R_name}_tau']
+print(f'tau = {tau}')
 t0 = res_info['Cal_Date'][f'{R_name}_t0']
 
-R = R0*(1 + alpha*(R_temp_val-T0) + gamma*(R_V_val-V0) + tau*(t_days-t0))
-print(f'R-value now:\n\t{R.x} +/- {R.u}, df = {R.df}')
-
-# print(res_info.keys())
-# date_u_str = res_info['Cal_Date']['ureal_str']
-# print(date_u_str)
-# Cal_date = str_to_ureal(date_u_str, f'av_date_{R_name}')
-# print(Cal_date)
+R = R0*(1 + alpha*(R_temp-T0) + gamma*(R_V-V0) + tau*(t_days-t0))
+print(f'R-value :\n\t{R.x} +/- {R.u}, df = {R.df}')
