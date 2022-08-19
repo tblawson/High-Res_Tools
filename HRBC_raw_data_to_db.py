@@ -215,7 +215,7 @@ for row in wb.ws('Data').rows:
             else:  # Reset reversal count as measurement No. increments:
                 reversal = 1
                 meas_no += 1
-
+            print(f'Processing run {this_run}:\n\tmeas. {meas_no}, reversal {reversal}.')
             # input('Press any key to continue with analysis.')
             # correct date formats:
             v1_t = convert(row[15])
@@ -228,7 +228,7 @@ for row in wb.ws('Data').rows:
                       f"'{v1_t}',{row[16]},{row[17]},'{vd_t}',{row[13]},{row[14]},'{v2_t}',{row[7]},{row[8]},"
                       f"{row[20]},{row[21]},{row[22]},{row[23]},{row[24]}")
             data_query = f"INSERT OR REPLACE INTO Raw_Data ({headings}) VALUES ({values});"
-            print(data_query)
+            # print(data_query)
             if row[25] not in ('', 'IGNORE',):  # comment
                 curs.execute(data_query)
         # End of data row selector
