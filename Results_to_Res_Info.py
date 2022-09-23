@@ -457,7 +457,7 @@ if run_count == LIMIT_MAX:  # Process all runs
         lbl = 'H100M 1G' + '_gamma'
         dummy = gamma*2  # Trick GTC to create a copy of gamma...
         gamma_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
-        values = (f"'H100M 1G','gamma',{gamma_H1G.x},{gamma_H1G.u},{gamma_H1G.df},'{lbl}',"
+        values = (f"'H100M 1G','gamma',{gamma_H1G.x/10},{gamma_H1G.u/10},{gamma_H1G.df},'{lbl}',"
                   f"'{ref_comment}','{ureal_to_str(gamma_H1G)}'")
         q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
         curs.execute(q)
