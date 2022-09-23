@@ -21,8 +21,8 @@ def convert(t_str):
     date, time = t_str.split()
     day, mon, yr = date.split('/')
     if len(day) == 4 and len(yr) == 2:
-        # Return original if format is correct already.
-        return t_str
+        # Return original order if format is correct already.
+        return f"{day}-{mon}-{yr} {time}"  # t_str
     else:
         return f"{yr}-{mon}-{day} {time}"
 
