@@ -31,7 +31,7 @@ def correct_auto2iv(name):
     if name.startswith('Auto'):
         # E.g. name = 'Auto 10M'
         val_str = name.split()[1]  # '10M'
-        name = f'I-V{val_str} {val_str}'
+        name = f'I-V{val_str} {val_str}'  # e.g 'I-V10M 10M'
     return name
 
 def extract_names(comment):
