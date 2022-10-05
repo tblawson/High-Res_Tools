@@ -163,7 +163,9 @@ for row in wb.ws('Data').rows:
     # Start gathering instrument assignments:
     role = row[Role_col - 1]
     descr = row[Descr_col - 1]
-    range_mode = row[Rng_mode_col - 1]
+    nom_range_mode = row[Rng_mode_col - 1]  # '', 'Range mode', 'FIXED' or 'AUTO'
+    if role == 'DVM12':
+        range_mode = nom_range_mode  # 'FIXED' or 'AUTO'
     if row[comment_col - 1] not in ('', 'Comment'):  # row[comment_col-1].startswith('R')
         prev_com = com
         com = row[comment_col - 1]  # Only re-assign comment if NOT blank or 'Comment'
@@ -175,26 +177,22 @@ for row in wb.ws('Data').rows:
     Ignore 'DVMT1' and 'DVMT2' roles since this info is no longer used
     in the analysis.
     """
-    if role not in ('', 'Role', 'DVMT1', 'DVMT2',):
+    if role not in ('', 'Role', 'DVMT1', 'DVMT2', 'switchbox'):
         roles.append(role)
         instruments.append(descr)
 
     """"
     Note range-mode for this run.
     Have enough info to write 1 record to Runs table now.
-    (Assumes range mode is given on LAST assignment row.)
+    (Assumes 10 role assignment rows.)
     """
-    if range_mode not in ('', 'Range mode'):
-        actual_range_mode = range_mode
-        # print(f'\tRange mode: {this_range_mode}')
+    if len(roles) == 7:  # Only recording 7/10 roles - ignore DVMT1, DVMT2 and switchbox.
         assignments = dict(zip(roles, instruments))
         print(assignments)
-        # print(f'\tInstrument assignments:\n\t{assignments}')
-        # print(f'comment: {com}')
         Rx_name, Rs_name = extract_names(com)
         # print(f'Rx: {Rx_name}, Rs: {Rs_name}')
         headings = f'Run_Id,Comment,RS_Name,RX_Name,Range_Mode,SRC1,SRC2,DVMd,DVM12,GMH1,GMH2,GMHroom,Source_File'
-        values = (f" '{this_run}','{com}','{Rs_name}','{Rx_name}','{actual_range_mode}',"
+        values = (f" '{this_run}','{com}','{Rs_name}','{Rx_name}','{range_mode}',"
                   f" '{assignments['SRC1']}','{assignments['SRC2']}','{assignments[DVM_null]}',"
                   f" '{assignments[DVM_src]}','{assignments['GMH1']}','{assignments['GMH2']}',"
                   f" '{assignments['GMHroom']}','{xl_file}'")
