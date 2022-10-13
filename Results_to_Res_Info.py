@@ -107,7 +107,7 @@ Rs_name = input("Preferred Rs_name(s)? (For any Rs press 'Enter') >")
 ---------------------------------------
 Select whether to analyse -
 * Just results in the most recent run (hopefully more accurate
-values for Cal-Date, R0, TRef VRef; other parameters not calculated).
+values for Cal-Date, R0, TRef, VRef. Other parameters not calculated).
 OR
 * All available results included (allows calculation of tau,...? ):
 '''
@@ -436,31 +436,32 @@ if run_count == LIMIT_MAX:  # Process all runs
         gamma = gtc.result(gamma_ab/R_0, label=lbl)  # Units: [/V]
     else:  # Gamma not calculated, (assumed zero).
         gamma = gtc.ureal(0, 0, 1e6, label=lbl)
-    print(f'Gamma = ({gamma.x} +/- {gamma.u} /C), dof = {gamma.df}')
+    print(f'Gamma = ({gamma.x} +/- {gamma.u} /V), dof = {gamma.df}')
 
     '''
     ---------------------------------------
-    Write gamma record to Res_Info table:
+    Write gamma record to Res_Info table IF UNCERT > 0:
     '''
     if math.isinf(gamma.df):
         df = 1e6
     else:
         df = gamma.df
 
-    # (Re-use Res_Info headings from last time)
-    lbl = Rx_name + '_gamma'
-    values = f"'{Rx_name}','gamma',{gamma.x},{gamma.u},{df},'{lbl}','{ref_comment}','{ureal_to_str(gamma)}'"
-    q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
-    curs.execute(q)
-
-    if hamon10m:  # Include inferred value(s) for series-connected Hamon.
-        lbl = 'H100M 1G' + '_gamma'
-        dummy = gamma*2  # Trick GTC to create a copy of gamma...
-        gamma_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
-        values = (f"'H100M 1G','gamma',{gamma_H1G.x/10},{gamma_H1G.u/10},{gamma_H1G.df},'{lbl}',"
-                  f"'{ref_comment}','{ureal_to_str(gamma_H1G)}'")
+    if gamma.u > 0:
+        # (Re-use Res_Info headings from last time)
+        lbl = Rx_name + '_gamma'
+        values = f"'{Rx_name}','gamma',{gamma.x},{gamma.u},{df},'{lbl}','{ref_comment}','{ureal_to_str(gamma)}'"
         q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
         curs.execute(q)
+
+        if hamon10m:  # Include inferred value(s) for series-connected Hamon.
+            lbl = 'H100M 1G' + '_gamma'
+            dummy = gamma*2  # Trick GTC to create a copy of gamma...
+            gamma_H1G = gtc.result(dummy/2, label=lbl)  # ...with a different label.
+            values = (f"'H100M 1G','gamma',{gamma_H1G.x/10},{gamma_H1G.u/10},{gamma_H1G.df},'{lbl}',"
+                      f"'{ref_comment}','{ureal_to_str(gamma_H1G)}'")
+            q = f"INSERT OR REPLACE INTO Res_Info ({headings}) VALUES ({values});"
+            curs.execute(q)
 
     '''
     ---------------------------------------
